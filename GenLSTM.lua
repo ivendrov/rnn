@@ -8,10 +8,9 @@
 local GenLSTM, parent = torch.class('nn.GenLSTM', 'nn.LSTM')
 
 function GenLSTM:__init(inputSize, outputSize, g, h, rho)
-    parent.__init(self, inputSize, outputSize, rho)
-
     self.g = g or nn.Tanh
     self.h = h or nn.Tanh
+    parent.__init(self, inputSize, outputSize, rho)
 end
 
 
