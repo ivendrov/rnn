@@ -16,6 +16,7 @@ function AbstractRecurrent:__init(rho)
    
    self.inputs = {}
    self.outputs = {}
+   self._gradOutputs = {}
    self.gradOutputs = {}
    self.scales = {}
    
@@ -85,71 +86,61 @@ function AbstractRecurrent:updateParameters(learningRate)
 end
 
 -- goes hand in hand with the next method : forget()
+-- this methods brings the oldest memory to the current step
 function AbstractRecurrent:recycle(offset)
-   offset = offset or 0
    -- offset can be used to skip initialModule (if any)
-   if self.step > self.rho + offset then
+   offset = offset or 0
+   -- pad rho with one extra time-step of memory (helps for Sequencer:remember()).
+   -- also, rho could have been manually increased or decreased
+   local rho = math.max(self.rho+1, _.size(self.sharedClones))
+   if self.step > rho + offset then
       assert(self.sharedClones[self.step] == nil)
-      assert(self.sharedClones[self.step-self.rho] ~= nil)
-      self.sharedClones[self.step] = self.sharedClones[self.step-self.rho]
-      self.sharedClones[self.step-self.rho] = nil
-      -- need to keep rho+1 of these
-      self.outputs[self.step] = self.outputs[self.step-self.rho-1] 
-      self.outputs[self.step-self.rho-1] = nil
+      self.sharedClones[self.step] = self.sharedClones[self.step-rho]
+      self.sharedClones[self.step-rho] = nil
    end
-   if self.step > self.rho then
+   
+   rho = math.max(self.rho+1, _.size(self.outputs))
+   if self.step > rho + offset then
+      -- need to keep rho+1 of these
+      assert(self.outputs[self.step] == nil)
+      self.outputs[self.step] = self.outputs[self.step-rho-1] 
+      self.outputs[self.step-rho-1] = nil
+   end
+   
+   rho = math.max(self.rho+1, _.size(self.inputs))
+   if self.step > rho then
       assert(self.inputs[self.step] == nil)
-      assert(self.inputs[self.step-self.rho] ~= nil)
-      self.inputs[self.step] = self.inputs[self.step-self.rho] 
-      self.gradOutputs[self.step] = self.gradOutputs[self.step-self.rho] 
-      self.inputs[self.step-self.rho] = nil
-      self.gradOutputs[self.step-self.rho] = nil
-      self.scales[self.step-self.rho] = nil
+      assert(self.gradOutputs[self.step] == nil)
+      assert(self._gradOutputs[self.step] == nil)
+      self.inputs[self.step] = self.inputs[self.step-rho]
+      self.inputs[self.step-rho] = nil      
+      self.gradOutputs[self.step] = self.gradOutputs[self.step-rho] 
+      self._gradOutputs[self.step] = self._gradOutputs[self.step-rho]
+      self.gradOutputs[self.step-rho] = nil
+      self._gradOutputs[self.step-rho] = nil
+      self.scales[self.step-rho] = nil
    end
    
    return self
 end
 
+-- this method brings all the memory back to the start
 function AbstractRecurrent:forget(offset)
    offset = offset or 0
+   
+    -- bring all states back to the start of the sequence buffers
    if self.train ~= false then
-      -- bring all states back to the start of the sequence buffers
-      local lastStep = self.step - 1
+      self.outputs = _.compact(self.outputs)
+      self.sharedClones = _.compact(self.sharedClones)
+      self.inputs = _.compact(self.inputs)
       
-      if lastStep > self.rho + offset then
-         local i = 1 + offset
-         for step = lastStep-self.rho+offset,lastStep do
-            assert(self.sharedClones[i] == nil)
-            self.sharedClones[i] = self.sharedClones[step]
-            self.sharedClones[step] = nil
-            -- we keep rho+1 of these : outputs[k]=outputs[k+rho+1]
-            assert(self.outputs[i-1] == nil)
-            self.outputs[i-1] = self.outputs[step]
-            self.outputs[step] = nil
-            i = i + 1
-         end
-         
-      end
-      
-      if lastStep > self.rho then
-         local i = 1
-         for step = lastStep-self.rho+1,lastStep do
-            assert(self.inputs[i] == nil)
-            assert(self.gradOutputs[i] == nil)
-            self.inputs[i] = self.inputs[step]
-            self.gradOutputs[i] = self.gradOutputs[step]
-            self.inputs[step] = nil
-            self.gradOutputs[step] = nil
-            self.scales[step] = nil
-            i = i + 1
-         end
-
-      end
+      self.scales = {}
+      self.gradOutputs = _.compact(self.gradOutputs)
+      self._gradOutputs = _.compact(self._gradOutputs)
    end
    
    -- forget the past inputs; restart from first step
    self.step = 1
-   
    return self
 end
 
